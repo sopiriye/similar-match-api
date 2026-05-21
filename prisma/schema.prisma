@@ -1,0 +1,246 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  MERCHANT
+
+  @@map("user_role")
+}
+
+enum MerchantStatus {
+  PENDING_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+
+  @@map("merchant_status")
+}
+
+enum DuplicateCheckStatus {
+  PENDING
+  COMPLETED
+  FAILED
+
+  @@map("duplicate_check_status")
+}
+
+enum LlmStatus {
+  COMPLETED
+  FAILED
+  TIMEOUT
+  SKIPPED_NO_CANDIDATES
+  SKIPPED_DISABLED
+
+  @@map("llm_status")
+}
+
+enum DuplicateSignal {
+  DETERMINISTIC @map("deterministic")
+  LLM           @map("llm")
+  BOTH          @map("both")
+
+  @@map("duplicate_signal")
+}
+
+enum DuplicateRecommendation {
+  LIKELY_DUPLICATE
+  REVIEW
+  WEAK_MATCH
+  NO_MATCH
+
+  @@map("duplicate_recommendation")
+}
+
+enum AuditEntityType {
+  USER
+  MERCHANT
+  DUPLICATE_CHECK
+  DUPLICATE_CHECK_CANDIDATE
+
+  @@map("audit_entity_type")
+}
+
+enum AuditAction {
+  USER_CREATED
+  ADMIN_CREATED
+  MERCHANT_CREATED
+  MERCHANT_VERIFIED
+  MERCHANT_REJECTED
+  DUPLICATE_CHECK_STARTED
+  DUPLICATE_CHECK_COMPLETED
+  DUPLICATE_CHECK_FAILED
+  LLM_REQUEST_SENT
+  LLM_REQUEST_FAILED
+  LLM_REQUEST_TIMEOUT
+
+  @@map("audit_action")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  firstName    String    @map("first_name") @db.VarChar(100)
+  lastName     String    @map("last_name") @db.VarChar(100)
+  email        String    @unique(map: "users_email_unique_idx") @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.Text
+  role         UserRole
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchantProfile    Merchant?  @relation("MerchantUser")
+  verifiedMerchants  Merchant[] @relation("VerifiedByUser")
+  rejectedMerchants  Merchant[] @relation("RejectedByUser")
+  performedAuditLogs AuditLog[] @relation("AuditPerformedBy")
+
+  @@index([role], map: "users_role_idx")
+  @@index([isActive], map: "users_is_active_idx")
+  @@index([createdAt], map: "users_created_at_idx")
+  @@map("users")
+}
+
+model Merchant {
+  id                     String         @id @default(uuid()) @db.Uuid
+  userId                 String?        @unique @map("user_id") @db.Uuid
+  businessName           String         @map("business_name") @db.VarChar(255)
+  normalizedBusinessName String         @map("normalized_business_name") @db.VarChar(255)
+  businessEmail          String         @map("business_email") @db.VarChar(255)
+  phoneNumber            String?        @map("phone_number") @db.VarChar(50)
+  cacNumber              String?        @map("cac_number") @db.VarChar(100)
+  address                String?        @db.Text
+  status                 MerchantStatus @default(PENDING_REVIEW)
+  verifiedAt             DateTime?      @map("verified_at") @db.Timestamptz(6)
+  verifiedByUserId       String?        @map("verified_by_user_id") @db.Uuid
+  rejectedAt             DateTime?      @map("rejected_at") @db.Timestamptz(6)
+  rejectedByUserId       String?        @map("rejected_by_user_id") @db.Uuid
+  rejectionReason        String?        @map("rejection_reason") @db.Text
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user               User?                     @relation("MerchantUser", fields: [userId], references: [id], onDelete: SetNull)
+  verifiedByUser     User?                     @relation("VerifiedByUser", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+  rejectedByUser     User?                     @relation("RejectedByUser", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+  duplicateChecks    DuplicateCheck[]          @relation("DuplicateCheckSourceMerchant")
+  candidateForChecks DuplicateCheckCandidate[] @relation("DuplicateCandidateMatchedMerchant")
+  llmRequestLogs     LlmRequestLog[]           @relation("LlmRequestSourceMerchant")
+
+  @@index([businessName], map: "merchants_business_name_idx")
+  @@index([normalizedBusinessName], map: "merchants_normalized_business_name_idx")
+  @@index([businessEmail], map: "merchants_business_email_idx")
+  @@index([cacNumber], map: "merchants_cac_number_idx")
+  @@index([status], map: "merchants_status_idx")
+  @@index([createdAt], map: "merchants_created_at_idx")
+  @@index([verifiedByUserId], map: "merchants_verified_by_user_id_idx")
+  @@index([rejectedByUserId], map: "merchants_rejected_by_user_id_idx")
+  @@map("merchants")
+}
+
+model DuplicateCheck {
+  id                       String               @id @default(uuid()) @db.Uuid
+  sourceMerchantId         String               @map("source_merchant_id") @db.Uuid
+  status                   DuplicateCheckStatus @default(PENDING)
+  llmStatus                LlmStatus            @default(SKIPPED_NO_CANDIDATES) @map("llm_status")
+  deterministicThreshold   Decimal              @default(0.6) @map("deterministic_threshold") @db.Decimal(3, 2)
+  deterministicWeight      Decimal              @default(0.65) @map("deterministic_weight") @db.Decimal(3, 2)
+  llmWeight                Decimal              @default(0.35) @map("llm_weight") @db.Decimal(3, 2)
+  totalCandidatesChecked   Int                  @default(0) @map("total_candidates_checked")
+  candidatesAboveThreshold Int                  @default(0) @map("candidates_above_threshold")
+  candidatesSentToLlm      Int                  @default(0) @map("candidates_sent_to_llm")
+  errorMessage             String?              @map("error_message") @db.Text
+  computedAt               DateTime?            @map("computed_at") @db.Timestamptz(6)
+  createdAt                DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sourceMerchant Merchant                  @relation("DuplicateCheckSourceMerchant", fields: [sourceMerchantId], references: [id], onDelete: Cascade)
+  candidates     DuplicateCheckCandidate[]
+  llmRequestLogs LlmRequestLog[]
+
+  @@index([sourceMerchantId], map: "duplicate_checks_source_merchant_id_idx")
+  @@index([status], map: "duplicate_checks_status_idx")
+  @@index([llmStatus], map: "duplicate_checks_llm_status_idx")
+  @@index([computedAt], map: "duplicate_checks_computed_at_idx")
+  @@index([createdAt], map: "duplicate_checks_created_at_idx")
+  @@map("duplicate_checks")
+}
+
+model DuplicateCheckCandidate {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  duplicateCheckId     String                  @map("duplicate_check_id") @db.Uuid
+  candidateMerchantId  String                  @map("candidate_merchant_id") @db.Uuid
+  levenshteinScore     Decimal                 @map("levenshtein_score") @db.Decimal(3, 2)
+  trigramScore         Decimal                 @map("trigram_score") @db.Decimal(3, 2)
+  jaroWinklerScore     Decimal                 @map("jaro_winkler_score") @db.Decimal(3, 2)
+  deterministicScore   Decimal                 @map("deterministic_score") @db.Decimal(3, 2)
+  llmScore             Decimal?                @map("llm_score") @db.Decimal(3, 2)
+  finalConfidenceScore Decimal                 @map("final_confidence_score") @db.Decimal(3, 2)
+  signal               DuplicateSignal
+  recommendation       DuplicateRecommendation
+  llmStatus            LlmStatus               @map("llm_status")
+  llmReason            String?                 @map("llm_reason") @db.Text
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  duplicateCheck    DuplicateCheck @relation(fields: [duplicateCheckId], references: [id], onDelete: Cascade)
+  candidateMerchant Merchant       @relation("DuplicateCandidateMatchedMerchant", fields: [candidateMerchantId], references: [id], onDelete: Cascade)
+
+  @@index([duplicateCheckId], map: "duplicate_candidates_duplicate_check_id_idx")
+  @@index([candidateMerchantId], map: "duplicate_candidates_candidate_merchant_id_idx")
+  @@index([finalConfidenceScore], map: "duplicate_candidates_final_confidence_score_idx")
+  @@index([recommendation], map: "duplicate_candidates_recommendation_idx")
+  @@index([signal], map: "duplicate_candidates_signal_idx")
+  @@index([duplicateCheckId, finalConfidenceScore], map: "duplicate_candidates_check_score_idx")
+  @@map("duplicate_check_candidates")
+}
+
+model LlmRequestLog {
+  id               String    @id @default(uuid()) @db.Uuid
+  duplicateCheckId String    @map("duplicate_check_id") @db.Uuid
+  sourceMerchantId String    @map("source_merchant_id") @db.Uuid
+  provider         String    @default("openai") @db.VarChar(100)
+  status           LlmStatus
+  requestPayload   Json?     @map("request_payload")
+  responsePayload  Json?     @map("response_payload")
+  errorMessage     String?   @map("error_message") @db.Text
+  timeoutMs        Int?      @map("timeout_ms")
+  durationMs       Int?      @map("duration_ms")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  duplicateCheck DuplicateCheck @relation(fields: [duplicateCheckId], references: [id], onDelete: Cascade)
+  sourceMerchant Merchant       @relation("LlmRequestSourceMerchant", fields: [sourceMerchantId], references: [id], onDelete: Cascade)
+
+  @@index([duplicateCheckId], map: "llm_logs_duplicate_check_id_idx")
+  @@index([sourceMerchantId], map: "llm_logs_source_merchant_id_idx")
+  @@index([provider], map: "llm_logs_provider_idx")
+  @@index([status], map: "llm_logs_status_idx")
+  @@index([createdAt], map: "llm_logs_created_at_idx")
+  @@map("llm_request_logs")
+}
+
+model AuditLog {
+  id                String          @id @default(uuid()) @db.Uuid
+  entityType        AuditEntityType @map("entity_type")
+  entityId          String          @map("entity_id") @db.Uuid
+  action            AuditAction
+  performedByUserId String?         @map("performed_by_user_id") @db.Uuid
+  performedByLabel  String?         @map("performed_by_label") @db.VarChar(255)
+  metadata          Json?
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  performedByUser User? @relation("AuditPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId], map: "audit_logs_entity_idx")
+  @@index([performedByUserId], map: "audit_logs_performed_by_user_id_idx")
+  @@index([action], map: "audit_logs_action_idx")
+  @@index([createdAt], map: "audit_logs_created_at_idx")
+  @@map("audit_logs")
+}
+
+//NOTES
+//the auditLog model will be ignored from being reviewed.
+
+//i assumed the indexes here are correct, but would still need to come review them later on.
