@@ -3,21 +3,22 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginAdminDto } from './dto/login-admin.dto';
+import { LoginDto } from './dto/login.dto';
 import { RegisterAdminDto } from './dto/register-admin.dto';
 
 @ApiTags('Auth')
-@Controller('auth-admin')
+@Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('register')
+  @Post('auth-admin/register')
   @ApiOperation({ summary: 'Create an admin account for the assessment build' })
   @ApiCreatedResponse({ description: 'Admin account created successfully' })
   @ApiBadRequestResponse({ description: 'Validation failed' })
@@ -28,11 +29,20 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Log in an admin and issue a JWT access token' })
-  @ApiOkResponse({ description: 'Admin login successful' })
+  @ApiOperation({
+    summary:
+      'Log in an admin or verified merchant and issue a JWT access token',
+  })
+  @ApiOkResponse({
+    description: 'Login successful with role-specific response payload',
+  })
   @ApiBadRequestResponse({ description: 'Validation failed' })
   @ApiUnauthorizedResponse({ description: 'Invalid email or password' })
-  login(@Body() loginAdminDto: LoginAdminDto) {
-    return this.authService.loginAdmin(loginAdminDto);
+  @ApiForbiddenResponse({
+    description:
+      'Merchant account is awaiting admin verification or account is inactive',
+  })
+  login(@Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto);
   }
 }
