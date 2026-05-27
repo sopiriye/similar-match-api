@@ -16,6 +16,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _context?: ExecutionContext,
   ): TUser {
+    // JwtAuthGuard request protection flow:
+    // Normalize Passport's authentication result so protected routes fail with one consistent unauthorized response.
     if (err || !user) {
       throw err ?? new UnauthorizedException('Invalid or expired access token');
     }

@@ -24,6 +24,8 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Validation failed' })
   @ApiConflictResponse({ description: 'Email already exists' })
   register(@Body() registerAdminDto: RegisterAdminDto) {
+    // AuthController admin registration route:
+    // Delegate the full admin account creation flow to the auth service and return its response payload unchanged.
     return this.authService.registerAdmin(registerAdminDto);
   }
 
@@ -43,6 +45,8 @@ export class AuthController {
       'Merchant account is awaiting admin verification or account is inactive',
   })
   login(@Body() loginDto: LoginDto) {
+    // AuthController shared login route:
+    // Delegate authentication to the auth service so it can return the correct response shape for the authenticated role.
     return this.authService.login(loginDto);
   }
 }

@@ -8,6 +8,8 @@ import { AuthTokenPayload } from './auth-token.service';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
+    // JwtStrategy configuration flow:
+    // Configure Passport to extract bearer tokens, enforce expiration, and verify signatures with the shared JWT secret.
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -16,6 +18,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: AuthTokenPayload): AuthenticatedUser {
+    // JwtStrategy validation flow:
+    // Normalize the verified JWT payload into the request user shape consumed by guards and route handlers.
     return {
       id: payload.sub,
       email: payload.email,

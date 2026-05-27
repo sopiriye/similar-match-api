@@ -24,10 +24,14 @@ export class AuthService {
   ) {}
 
   async registerAdmin(registerAdminDto: RegisterAdminDto) {
+    // Admin registration flow:
+    // Validate that this route is used only for admin account creation before touching persistence.
     if (registerAdminDto.role !== UserRole.ADMIN) {
       throw new BadRequestException('role must be ADMIN');
     }
 
+    // Admin registration flow:
+    // Normalize the email and reject duplicate credentials before hashing or creating the user.
     const email = this.normalizeEmail(registerAdminDto.email);
     const existingUser = await this.databaseService.user.findUnique({
       where: { email },
@@ -38,6 +42,8 @@ export class AuthService {
       throw new ConflictException('Email already exists');
     }
 
+    // Admin registration flow:
+    // Hash the password and persist the admin record that the login route will later authenticate.
     const passwordHash = await this.passwordService.hash(
       registerAdminDto.password,
     );
@@ -56,6 +62,8 @@ export class AuthService {
       },
     });
 
+    // Admin registration flow:
+    // Return the minimal account creation payload expected by the controller response.
     return {
       message: 'Account created successfully',
       user,
@@ -63,18 +71,27 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
+    // Shared login flow:
+    // Authenticate the incoming credentials for either an admin or a merchant account.
     const user = await this.validateCredentials(
       loginDto.email,
       loginDto.password,
     );
+
+    // Shared login flow:
+    // Issue the JWT access token that protected routes will later validate through Passport.
     const accessToken = await this.authTokenService.sign({
       sub: user.id,
       email: user.email,
       role: user.role,
     });
 
+    // Shared login flow:
+    // Resolve the role-specific response builder so admin and merchant payloads can diverge cleanly.
     const responseHandler = this.roleAuthFactory.get(user.role);
 
+    // Shared login flow:
+    // Build and return the role-aware login response payload for the controller route.
     return responseHandler.buildLoginResponse({
       accessToken,
       user,
@@ -85,6 +102,8 @@ export class AuthService {
     emailAddress: string,
     password: string,
   ): Promise<LoginUser> {
+    // Credential validation flow:
+    // Load the authentication record and linked merchant verification state needed for login checks.
     const email = this.normalizeEmail(emailAddress);
     const user = await this.databaseService.user.findUnique({
       where: { email },
@@ -105,6 +124,8 @@ export class AuthService {
       },
     });
 
+    // Credential validation flow:
+    // Fail early when the account does not exist or is currently disabled.
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -113,6 +134,8 @@ export class AuthService {
       throw new ForbiddenException('Account is inactive');
     }
 
+    // Credential validation flow:
+    // Verify the supplied password against the stored password hash before allowing access.
     const passwordMatches = await this.passwordService.verify(
       password,
       user.passwordHash,
@@ -122,6 +145,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    // Credential validation flow:
+    // Enforce the merchant verification gate so only admin-approved merchants can log in.
     if (
       user.role === UserRole.MERCHANT &&
       user.merchantProfile?.status !== MerchantStatus.VERIFIED
@@ -131,6 +156,8 @@ export class AuthService {
       );
     }
 
+    // Credential validation flow:
+    // Return only the normalized login context needed by token issuance and response factories.
     return {
       id: user.id,
       email: user.email,
