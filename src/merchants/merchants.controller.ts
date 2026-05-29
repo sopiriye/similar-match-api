@@ -1,10 +1,20 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiBearerAuth,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
@@ -49,6 +59,29 @@ export class MerchantsController {
     // MerchantsController search route:
     // Delegate the admin merchant search flow so filtering and response shaping stay centralized in the service layer.
     return this.merchantsService.search(searchMerchantsQueryDto);
+  }
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Retrieve merchant details with duplicate-analysis summary',
+  })
+  @ApiOkResponse({
+    description:
+      'Merchant profile, verification status, registration timestamp, and duplicate-analysis details returned successfully',
+  })
+  @ApiBadRequestResponse({ description: 'Validation failed' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({
+    description: 'Only admins can view merchant details',
+  })
+  @ApiNotFoundResponse({ description: 'Merchant not found' })
+  getById(@Param('id', new ParseUUIDPipe()) merchantId: string) {
+    // MerchantsController detail route:
+    // Delegate the merchant detail flow so cache reuse, recomputation, and duplicate-analysis response shaping stay in the service layer.
+    return this.merchantsService.getById(merchantId);
   }
 
   @Post('register')

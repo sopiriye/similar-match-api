@@ -17,17 +17,6 @@ export class DuplicateDetectionService {
   ) {}
 
   async runRegistrationCheck(sourceMerchantId: string): Promise<void> {
-    // DuplicateDetectionService cache flow:
-    // Skip recomputation when a completed duplicate-check result already exists and no newer merchant has been created since it ran.
-    const reusableCheck =
-      await this.findReusableCompletedCheck(sourceMerchantId);
-    if (reusableCheck) {
-      this.logger.log(
-        `Reusing duplicate check ${reusableCheck.id} for merchant ${sourceMerchantId}`,
-      );
-      return;
-    }
-
     // DuplicateDetectionService check creation flow:
     // Create a fresh duplicate-check run record before deterministic and LLM evaluation begins.
     const duplicateCheck = await this.databaseService.duplicateCheck.create({
@@ -181,39 +170,6 @@ export class DuplicateDetectionService {
       );
       throw error;
     }
-  }
-
-  private async findReusableCompletedCheck(sourceMerchantId: string) {
-    const latestCheck = await this.databaseService.duplicateCheck.findFirst({
-      where: { sourceMerchantId },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        status: true,
-        computedAt: true,
-      },
-    });
-
-    if (
-      !latestCheck ||
-      latestCheck.status !== DuplicateCheckStatus.COMPLETED ||
-      !latestCheck.computedAt
-    ) {
-      return null;
-    }
-
-    const newerMerchantCount = await this.databaseService.merchant.count({
-      where: {
-        id: {
-          not: sourceMerchantId,
-        },
-        createdAt: {
-          gt: latestCheck.computedAt,
-        },
-      },
-    });
-
-    return newerMerchantCount === 0 ? latestCheck : null;
   }
 
   private toJsonValue(
